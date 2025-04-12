@@ -6,10 +6,10 @@
 
 #include "horizon/gfx/context.hpp"
 
-#include "camera.hpp"
-#include "cbvh.hpp"
-#include "image.hpp"
-#include "traversal.hpp"
+#include "photon/camera.hpp"
+#include "photon/cbvh.hpp"
+#include "photon/image.hpp"
+#include "photon/traversal.hpp"
 
 #include <GLFW/glfw3.h>
 

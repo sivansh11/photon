@@ -27,7 +27,7 @@ add_library(photon
 )
 
 target_include_directories(photon
-  PUBLIC include
+  PUBLIC include/
 )
 
 target_link_libraries(photon
