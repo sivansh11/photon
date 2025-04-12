@@ -11,10 +11,24 @@
 #include "image.hpp"
 #include "traversal.hpp"
 
+#include <GLFW/glfw3.h>
+
 #include <vector>
 
 int main(int argc, char **argv) {
   check(argc == 2, "vision [model path]");
+
+  // auto window =
+  //     core::make_ref<core::window_t>("vision - permanent name tbd", 640,
+  //     420);
+
+  // auto context = core::make_ref<gfx::context_t>(true);
+
+  // while (!window->should_close()) {
+  //   core::window_t::poll_events();
+  //   if (glfwGetKey(*window, GLFW_KEY_ESCAPE))
+  //     break;
+  // }
 
   core::raw_model_t model = core::load_model_from_path(argv[1]);
 

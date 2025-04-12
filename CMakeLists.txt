@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(vision)
+project(photon)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
@@ -22,11 +22,19 @@ endif()
 
 file(GLOB_RECURSE SRC_FILES src/*.cpp)
 
-add_executable(vision
+add_library(photon
   ${SRC_FILES}
 )
 
-target_link_libraries(vision
+target_include_directories(photon
+  PUBLIC include
+)
+
+target_link_libraries(photon
   PUBLIC horizon
 )
+
+if (PHOTON_BUILD_EXAMPLES)
+  add_subdirectory(examples)
+endif()
 
