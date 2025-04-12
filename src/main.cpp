@@ -7,6 +7,7 @@
 #include "horizon/gfx/context.hpp"
 
 #include "camera.hpp"
+#include "cbvh.hpp"
 #include "image.hpp"
 #include "traversal.hpp"
 
@@ -39,7 +40,7 @@ int main(int argc, char **argv) {
 
   core::bvh::options_t options = {
       .o_min_primitive_count = 1,
-      .o_max_primitive_count = 1,
+      .o_max_primitive_count = 8,
       .o_object_split_search_type =
           core::bvh::object_split_search_type_t::e_binned_sah,
       .o_primitive_intersection_cost = 1.1f,
@@ -50,6 +51,8 @@ int main(int argc, char **argv) {
   core::bvh::bvh_t bvh = core::bvh::build_bvh2(aabbs.data(), centers.data(),
                                                triangles.size(), options);
 
+  bvh::cbvh_t<uint8_t> cbvh = bvh::convert_bvh_to_cbvh<uint8_t>(bvh);
+
   camera_t camera = camera_t::create(640, 420, -45, {0, 1, 5}, {0, 1, 0});
 
   image_t image{640, 420};
@@ -57,7 +60,7 @@ int main(int argc, char **argv) {
   for (uint32_t i = 0; i < 640; i++)
     for (uint32_t j = 0; j < 420; j++) {
       bvh::ray_data_t ray = camera.ray_gen(i, j);
-      auto hit = bvh::traverse(bvh, ray, triangles.data());
+      auto hit = bvh::traverse(cbvh, ray, triangles.data());
       if (hit.primitive_index != core::bvh::invalid_index) {
         image.at(i, j) = core::vec4{
             ((hit.primitive_index * 8765 + 135) % 255) / 255.f,

@@ -1,6 +1,8 @@
 #ifndef CORE_BVH_TRAVERSAL_HPP
 #define CORE_BVH_TRAVERSAL_HPP
 
+#include "cbvh.hpp"
+#include "horizon/core/aabb.hpp"
 #include "horizon/core/bvh.hpp"
 #include "horizon/core/core.hpp"
 #include <limits>
@@ -140,6 +142,78 @@ inline hit_data_t traverse(const core::bvh::bvh_t &bvh, ray_data_t &ray_data,
       } else {
         for (uint32_t i = 0; i < node.as.internal.children_count; i++) {
           stack.push(node.as.internal.first_child_index + i);
+        }
+      }
+    }
+  }
+  return hit;
+}
+
+// template <typename T>
+// inline core::aabb_t dequntize_aabb(core::aabb_t parent, qaabb_t<T> child) {
+//   core::aabb_t aabb{};
+//
+//   const core::vec3 parent_extent = parent.max - parent.min;
+//
+//   constexpr float scaling_factor = T(-1);
+//   constexpr float inverse_scaling_factor = 1.f / scaling_factor;
+//
+//   core::vec3 relative_min, relative_max;
+//   relative_min.x = child.min.x * inverse_scaling_factor;
+//   relative_min.y = child.min.y * inverse_scaling_factor;
+//   relative_min.z = child.min.z * inverse_scaling_factor;
+//   relative_max.x = child.max.x * inverse_scaling_factor;
+//   relative_max.y = child.max.y * inverse_scaling_factor;
+//   relative_max.z = child.max.z * inverse_scaling_factor;
+//
+//   relative_min = (relative_min * 2.f) - 1.f;
+//   relative_max = (relative_max * 2.f) - 1.f;
+//
+//   aabb.min = parent.min + (relative_min * parent_extent);
+//   aabb.max = parent.max - (relative_max * parent_extent);
+//
+//   return aabb;
+// }
+
+struct entry_t {
+  uint32_t node_id;
+  core::aabb_t parent_aabb;
+};
+
+template <typename T>
+inline hit_data_t traverse(const cbvh_t<T> &cbvh, ray_data_t &ray_data,
+                           const triangle_t *p_triangles) {
+  hit_data_t hit{};
+
+  std::stack<entry_t> stack{};
+  stack.push({0, cbvh.root_aabb});
+
+  while (stack.size()) {
+    auto entry = stack.top();
+    stack.pop();
+    bvh::cnode_t<T> node = cbvh.nodes[entry.node_id];
+    core::aabb_t aabb = dequntize_aabb(entry.parent_aabb, node.qaabb);
+    aabb_intersection_t intersection = aabb_intersect(aabb, ray_data);
+    if (intersection.did_intersect()) {
+      if (node.is_leaf) {
+        for (uint32_t i = 0; i < node.primitive_count; i++) {
+          uint32_t primitive_index =
+              cbvh.primitive_indices[node.as.leaf.first_primitive_index + i];
+          const triangle_t &triangle = p_triangles[primitive_index];
+          triangle_intersection_t intersection =
+              triangle_intersect(triangle, ray_data);
+          if (intersection.did_intersect()) {
+            ray_data.tmax = intersection.t;
+            hit.primitive_index = primitive_index;
+            hit.t = intersection.t;
+            hit.u = intersection.u;
+            hit.v = intersection.v;
+            hit.w = intersection.w;
+          }
+        }
+      } else {
+        for (uint32_t i = 0; i < node.as.internal.children_count; i++) {
+          stack.push({i + node.as.internal.first_child_index, aabb});
         }
       }
     }
