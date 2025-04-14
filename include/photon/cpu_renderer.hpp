@@ -5,6 +5,7 @@
 #include "horizon/core/ecs.hpp"
 #include "horizon/core/event.hpp"
 
+#include "horizon/core/components.hpp"
 #include "photon/image.hpp"
 
 #include <cstdint>
@@ -19,7 +20,7 @@ public:
                  core::ref<core::dispatcher_t> dispatcher);
   ~cpu_renderer_t();
 
-  void render(ecs::scene_t<> &scene /* TODO: add universal camera */);
+  void render(ecs::scene_t<> &scene, const core::camera_t &camera);
 
   // TODO: maybe change this ?
   core::ref<image_t> image() { return _image; }
