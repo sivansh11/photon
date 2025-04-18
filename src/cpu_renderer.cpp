@@ -134,12 +134,34 @@ inline aabb_intersection_t aabb_intersect(const core::aabb_t &aabb,
 
 namespace photon {
 
+namespace utils {
+
+// static stack
+template <typename T, size_t max_stack> struct stack {
+  stack() : _top(0) {}
+  ~stack() {}
+
+  void push(T val) { _data[_top++] = val; }
+
+  T top() { return _data[_top - 1]; }
+
+  void pop() { --_top; }
+
+  uint32_t size() { return _top; }
+
+  T _data[max_stack];
+  uint32_t _top;
+};
+
+} // namespace utils
+
 struct bvh_triangle_instance_t {
   core::bvh::triangle_t *triangles{};
   core::bvh::triangle_indices_t *triangle_indices{};
   core::vertex_t *vertices{}; // raw vertices
   core::bvh::node_t *nodes{};
   uint32_t *primitive_indices{};
+  core::aabb_t root{};
 
   // user id
   // transform
@@ -153,43 +175,94 @@ struct model_t {
   std::vector<mesh_t> meshes{};
 };
 
-core::bvh::hit_data_t traverse(const bvh_triangle_instance_t &instance,
-                               core::bvh::ray_data_t &ray_data) {
-  core::bvh::hit_data_t hit{};
+core::bvh::hit_data_t traverse_bvh2(const bvh_triangle_instance_t &instance,
+                                    core::bvh::ray_data_t &ray_data) {
+  core::bvh::hit_data_t hit;
+  hit.primitive_index = core::bvh::invalid_index;
 
-  std::stack<uint32_t> stack{};
-  stack.push(0);
+  utils::stack<uint32_t, 16> stack;
 
-  while (stack.size()) {
-    auto node_index = stack.top();
-    stack.pop();
-    core::bvh::node_t node = instance.nodes[node_index];
-    core::bvh::aabb_intersection_t intersection =
-        aabb_intersect(node.aabb, ray_data);
-    if (intersection.did_intersect()) {
-      if (node.is_leaf) {
-        for (uint32_t i = 0; i < node.primitive_count; i++) {
-          uint32_t primitive_index =
-              instance
-                  .primitive_indices[node.as.leaf.first_primitive_index + i];
-          const core::bvh::triangle_t &triangle =
-              instance.triangles[primitive_index];
-          core::bvh::triangle_intersection_t intersection =
-              core::bvh::triangle_intersect((core::bvh::triangle_t &)triangle,
-                                            ray_data);
-          if (intersection.did_intersect()) {
-            ray_data.tmax = intersection.t;
-            hit.primitive_index = primitive_index;
-            hit.t = intersection.t;
-            hit.u = intersection.u;
-            hit.v = intersection.v;
-            hit.w = intersection.w;
-          }
+  core::bvh::node_t root = instance.nodes[0];
+  if (!core::bvh::aabb_intersect(root.aabb, ray_data).did_intersect())
+    return hit;
+
+  if (root.is_leaf) {
+    for (uint32_t i = 0; i < root.primitive_count; i++) {
+      uint32_t primitive_index =
+          instance.primitive_indices[root.as.leaf.first_primitive_index + i];
+      core::bvh::triangle_t triangle = instance.triangles[primitive_index];
+      core::bvh::triangle_intersection_t intersection =
+          core::bvh::triangle_intersect(triangle, ray_data);
+      if (intersection.did_intersect()) {
+        ray_data.tmax = intersection.t;
+        hit.primitive_index = primitive_index;
+        hit.t = intersection.t;
+        hit.u = intersection.u;
+        hit.v = intersection.v;
+        hit.w = intersection.w;
+      }
+    }
+    return hit;
+  }
+
+  uint32_t current = 1;
+  while (true) {
+    const core::bvh::node_t left = instance.nodes[current];
+    const core::bvh::node_t right = instance.nodes[current + 1];
+
+    core::bvh::aabb_intersection_t left_intersection =
+        core::bvh::aabb_intersect(left.aabb, ray_data);
+    core::bvh::aabb_intersection_t right_intersection =
+        core::bvh::aabb_intersect(right.aabb, ray_data);
+
+    uint32_t start = 0;
+    uint32_t end = 0;
+    if (left_intersection.did_intersect() && left.is_leaf) {
+      if (right_intersection.did_intersect() && right.is_leaf) {
+        start = left.as.leaf.first_primitive_index;
+        end = right.as.leaf.first_primitive_index + right.primitive_count;
+      } else {
+        start = left.as.leaf.first_primitive_index;
+        end = left.as.leaf.first_primitive_index + left.primitive_count;
+      }
+    } else if (right_intersection.did_intersect() && right.is_leaf) {
+      start = right.as.leaf.first_primitive_index;
+      end = right.as.leaf.first_primitive_index + right.primitive_count;
+    }
+    for (uint32_t i = start; i < end; i++) {
+      uint32_t primitive_index = instance.primitive_indices[i];
+      core::bvh::triangle_t triangle = instance.triangles[primitive_index];
+      core::bvh::triangle_intersection_t intersection =
+          core::bvh::triangle_intersect(triangle, ray_data);
+      if (intersection.did_intersect()) {
+        ray_data.tmax = intersection.t;
+        hit.primitive_index = primitive_index;
+        hit.t = intersection.t;
+        hit.u = intersection.u;
+        hit.v = intersection.v;
+        hit.w = intersection.w;
+      }
+    }
+    if (left_intersection.did_intersect() && !left.is_leaf) {
+      if (right_intersection.did_intersect() && !right.is_leaf) {
+        if (left_intersection.tmin <= right_intersection.tmin) {
+          current = left.as.internal.first_child_index;
+          stack.push(right.as.internal.first_child_index);
+        } else {
+          current = right.as.internal.first_child_index;
+          stack.push(left.as.internal.first_child_index);
         }
       } else {
-        for (uint32_t i = 0; i < node.as.internal.children_count; i++) {
-          stack.push(node.as.internal.first_child_index + i);
-        }
+        current = left.as.internal.first_child_index;
+      }
+    } else {
+      if (right_intersection.did_intersect() && !right.is_leaf) {
+        current = right.as.internal.first_child_index;
+      } else {
+        if (!stack.size())
+          return hit;
+        current = stack.top();
+        stack.pop();
       }
     }
   }
@@ -223,7 +296,7 @@ model_t create_bvh_model_from_raw_model(const core::raw_model_t &raw_model) {
 
     core::bvh::options_t options{
         .o_min_primitive_count = 1,
-        .o_max_primitive_count = std::numeric_limits<uint32_t>::max(),
+        .o_max_primitive_count = 8,
         .o_object_split_search_type =
             core::bvh::object_split_search_type_t::e_binned_sah,
         .o_primitive_intersection_cost = 1.1f,
@@ -253,6 +326,7 @@ model_t create_bvh_model_from_raw_model(const core::raw_model_t &raw_model) {
     std::memcpy(mesh.instance.primitive_indices, bvh.primitive_indices.data(),
                 bvh.primitive_indices.size() *
                     sizeof(bvh.primitive_indices[0]));
+    mesh.instance.root = mesh.instance.nodes[0].aabb;
     model.meshes.push_back(mesh);
   }
   return model;
@@ -300,8 +374,31 @@ void cpu_renderer_t::render(ecs::scene_t<> &scene,
     scene.construct<model_t>(id) = create_bvh_model_from_raw_model(raw_model);
   });
   // create tlas here
+  std::vector<bvh_triangle_instance_t> instances{};
+  std::vector<core::aabb_t> aabbs{};
+  std::vector<core::vec3> centers{};
+  scene.for_all<model_t>([&](auto, const model_t &model) {
+    for (const auto &mesh : model.meshes) {
+      instances.push_back(mesh.instance);
+      aabbs.push_back(mesh.instance.root);
+      centers.push_back(mesh.instance.root.center());
+    }
+  });
+
+  core::bvh::options_t options{
+      .o_min_primitive_count = 1,
+      .o_max_primitive_count = 8,
+      .o_object_split_search_type =
+          core::bvh::object_split_search_type_t::e_binned_sah,
+      .o_primitive_intersection_cost = 1.5f,
+      .o_node_intersection_cost = 1.f,
+      .o_samples = 16,
+  };
+  core::bvh::bvh_t tlas = core::bvh::build_bvh2(aabbs.data(), centers.data(),
+                                                instances.size(), options);
 
   // render
+  // TODO: multithread this
   scene.for_all<model_t>([&](auto id, model_t &model) {
     for (uint32_t i = 0; i < _image->width; i++) {
       for (uint32_t j = 0; j < _image->height; j++) {
@@ -311,7 +408,7 @@ void cpu_renderer_t::render(ecs::scene_t<> &scene,
         core::bvh::ray_data_t ray_data = create_ray(
             uv, core::inverse(camera.projection), core::inverse(camera.view));
         for (auto &mesh : model.meshes) {
-          auto hit = traverse(mesh.instance, ray_data);
+          auto hit = traverse_bvh2(mesh.instance, ray_data);
           if (hit.primitive_index != core::bvh::invalid_index) {
             _image->at(i, j) = core::vec4{
                 ((hit.primitive_index * 8765 + 135) % 255) / 255.f,
