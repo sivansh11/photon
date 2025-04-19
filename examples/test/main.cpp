@@ -22,6 +22,8 @@ int main(int argc, char **argv) {
   core::camera_t camera{};
   camera.view = core::lookAt(core::vec3{0, 1, 5}, core::vec3{0, 1, 0},
                              core::vec3{0, 1, 0});
+  camera.view = core::lookAt(core::vec3{0, 5, 0}, core::vec3{10, 5, 0},
+                             core::vec3{0, 1, 0});
   camera.projection = core::perspective(
       45.f, float(renderer.image()->width) / float(renderer.image()->height),
       0.0001f, 1000.0f);

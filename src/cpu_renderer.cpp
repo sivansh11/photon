@@ -1,14 +1,20 @@
 #include "photon/cpu_renderer.hpp"
 
+#include "glm/fwd.hpp"
 #include "horizon/core/aabb.hpp"
 #include "horizon/core/bvh.hpp"
 #include "horizon/core/core.hpp"
 #include "horizon/core/ecs.hpp"
-
+#include "horizon/core/logger.hpp"
 #include "horizon/core/math.hpp"
 #include "horizon/core/model.hpp"
+#include "horizon/core/stb_image.h"
+
+#include "horizon/gfx/helper.hpp"
+
 #include "photon/image.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <ostream>
 #include <stack>
@@ -72,6 +78,7 @@ struct aabb_intersection_t {
 };
 
 struct hit_data_t {
+  uint32_t instance_index = core::bvh::invalid_index;
   uint32_t primitive_index = core::bvh::invalid_index;
   float t = core::infinity;
   float u, v, w;
@@ -155,6 +162,25 @@ template <typename T, size_t max_stack> struct stack {
 
 } // namespace utils
 
+struct texture_t {
+  uint32_t width, height;
+  uint8_t *pixel_data;
+
+  core::vec4 sample(float u, float v) {
+    u = u - core::floor(u);
+    v = v - core::floor(v);
+    uint32_t x = u * width;
+    uint32_t y = v * height;
+    return {float(pixel_data[(y * width + x) * 4 + 0]) / 255.f,
+            float(pixel_data[(y * width + x) * 4 + 1]) / 255.f,
+            float(pixel_data[(y * width + x) * 4 + 2]) / 255.f, 1};
+  }
+};
+
+struct material_t {
+  texture_t diffuse{};
+};
+
 struct bvh_triangle_instance_t {
   core::bvh::triangle_t *triangles{};
   core::bvh::triangle_indices_t *triangle_indices{};
@@ -162,6 +188,7 @@ struct bvh_triangle_instance_t {
   core::bvh::node_t *nodes{};
   uint32_t *primitive_indices{};
   core::aabb_t root{};
+  material_t material{};
 
   // user id
   // transform
@@ -269,6 +296,44 @@ core::bvh::hit_data_t traverse_bvh2(const bvh_triangle_instance_t &instance,
   return hit;
 }
 
+core::bvh::hit_data_t traverse_tlas(const core::bvh::bvh_t &bvh,
+                                    bvh_triangle_instance_t *instances,
+                                    core::bvh::ray_data_t &ray_data) {
+  core::bvh::hit_data_t hit{};
+
+  utils::stack<uint32_t, 8> stack{};
+  stack.push(0);
+
+  while (stack.size()) {
+    auto node_index = stack.top();
+    stack.pop();
+    core::bvh::node_t node = bvh.nodes[node_index];
+    core::bvh::aabb_intersection_t intersection =
+        core::bvh::aabb_intersect(node.aabb, ray_data);
+    if (intersection.did_intersect()) {
+      if (node.is_leaf) {
+        for (uint32_t i = 0; i < node.primitive_count; i++) {
+          uint32_t instance_index =
+              bvh.primitive_indices[node.as.leaf.first_primitive_index + i];
+
+          auto blas_hit = traverse_bvh2(instances[instance_index], ray_data);
+          if (blas_hit.primitive_index != core::bvh::invalid_index) {
+            // hit
+            hit = blas_hit;
+            hit.instance_index = instance_index;
+          }
+        }
+      } else {
+        for (uint32_t i = 0; i < node.as.internal.children_count; i++) {
+          stack.push(node.as.internal.first_child_index + i);
+        }
+      }
+    }
+  }
+
+  return hit;
+}
+
 model_t create_bvh_model_from_raw_model(const core::raw_model_t &raw_model) {
   model_t model{};
 
@@ -327,6 +392,50 @@ model_t create_bvh_model_from_raw_model(const core::raw_model_t &raw_model) {
                 bvh.primitive_indices.size() *
                     sizeof(bvh.primitive_indices[0]));
     mesh.instance.root = mesh.instance.nodes[0].aabb;
+
+    auto itr = std::find_if(raw_mesh.material_description.texture_infos.begin(),
+                            raw_mesh.material_description.texture_infos.end(),
+                            [](const core::texture_info_t &texture_info) {
+                              return texture_info.texture_type ==
+                                         core::texture_type_t::e_diffuse_map |
+                                     texture_info.texture_type ==
+                                         core::texture_type_t::e_diffuse_color;
+                            });
+
+    if (itr != raw_mesh.material_description.texture_infos.end() &&
+        itr->texture_type == core::texture_type_t::e_diffuse_map) {
+      // load texture
+      int width, height, channels;
+      stbi_set_flip_vertically_on_load(true);
+      stbi_uc *pixels = stbi_load(itr->file_path.string().c_str(), &width,
+                                  &height, &channels, STBI_rgb_alpha);
+
+      mesh.instance.material.diffuse.width = width;
+      mesh.instance.material.diffuse.height = height;
+      mesh.instance.material.diffuse.pixel_data = pixels;
+      // TODO: image free
+      // stbi_image_free(pixels);
+    } else if (itr != raw_mesh.material_description.texture_infos.end() &&
+               itr->texture_type == core::texture_type_t::e_diffuse_color) {
+      // default texture
+      mesh.instance.material.diffuse.width = 1;
+      mesh.instance.material.diffuse.height = 1;
+      mesh.instance.material.diffuse.pixel_data =
+          new uint8_t[1 * 1 * 4]; // 4 channels
+      mesh.instance.material.diffuse.pixel_data[0] = itr->diffuse_color.r * 255;
+      mesh.instance.material.diffuse.pixel_data[1] = itr->diffuse_color.g * 255;
+      mesh.instance.material.diffuse.pixel_data[2] = itr->diffuse_color.b * 255;
+      mesh.instance.material.diffuse.pixel_data[3] = 255;
+      // std::memset(mesh.instance.material.diffuse.pixel_data, 255, 1 * 1 * 4);
+    } else {
+      // default texture
+      mesh.instance.material.diffuse.width = 1;
+      mesh.instance.material.diffuse.height = 1;
+      mesh.instance.material.diffuse.pixel_data =
+          new uint8_t[1 * 1 * 4]; // 4 channels
+      std::memset(mesh.instance.material.diffuse.pixel_data, 255, 1 * 1 * 4);
+    }
+
     model.meshes.push_back(mesh);
   }
   return model;
@@ -377,11 +486,13 @@ void cpu_renderer_t::render(ecs::scene_t<> &scene,
   std::vector<bvh_triangle_instance_t> instances{};
   std::vector<core::aabb_t> aabbs{};
   std::vector<core::vec3> centers{};
+  std::vector<material_t> materials{};
   scene.for_all<model_t>([&](auto, const model_t &model) {
     for (const auto &mesh : model.meshes) {
       instances.push_back(mesh.instance);
       aabbs.push_back(mesh.instance.root);
       centers.push_back(mesh.instance.root.center());
+      materials.push_back(mesh.instance.material);
     }
   });
 
@@ -407,15 +518,48 @@ void cpu_renderer_t::render(ecs::scene_t<> &scene,
         uv.y = float(j) / float(_image->height - 1);
         core::bvh::ray_data_t ray_data = create_ray(
             uv, core::inverse(camera.projection), core::inverse(camera.view));
-        for (auto &mesh : model.meshes) {
-          auto hit = traverse_bvh2(mesh.instance, ray_data);
-          if (hit.primitive_index != core::bvh::invalid_index) {
-            _image->at(i, j) = core::vec4{
-                ((hit.primitive_index * 8765 + 135) % 255) / 255.f,
-                ((hit.primitive_index * 4 * 856 + 74334) % 255) / 255.f,
-                ((hit.primitive_index * 2 * 879 + 86) % 255) / 255.f, 1.f};
-          }
+
+        // TLAS rendering
+        auto hit = traverse_tlas(tlas, instances.data(), ray_data);
+        if (hit.primitive_index != core::bvh::invalid_index) {
+          bvh_triangle_instance_t instance = instances[hit.instance_index];
+          core::bvh::triangle_indices_t triangle_indices =
+              instance.triangle_indices
+                  [instance.primitive_indices[hit.primitive_index]];
+          core::vertex_t v0, v1, v2;
+          v0 = instance.vertices[triangle_indices.i0];
+          v1 = instance.vertices[triangle_indices.i1];
+          v2 = instance.vertices[triangle_indices.i2];
+
+          float u = hit.u, v = hit.v, w = hit.w;
+
+          core::vertex_t vertex{};
+          vertex.position = u * v0.position + v * v1.position + w * v2.position;
+          vertex.normal = u * v0.normal + v * v1.normal + w * v2.normal;
+          vertex.uv = u * v0.uv + v * v1.uv + w * v2.uv;
+          vertex.tangent = u * v0.tangent + v * v1.tangent + w * v2.tangent;
+          vertex.bi_tangent =
+              u * v0.bi_tangent + v * v1.bi_tangent + w * v2.bi_tangent;
+
+          // _image->at(i, j) =
+          //     instance.material.diffuse.sample(vertex.uv.x, vertex.uv.y);
+
+          _image->at(i, j) = core::vec4{
+              ((hit.primitive_index * 8765 + 135) % 255) / 255.f,
+              ((hit.primitive_index * 4 * 856 + 74334) % 255) / 255.f,
+              ((hit.primitive_index * 2 * 879 + 86) % 255) / 255.f, 1.f};
         }
+
+        // No TLAS rendering
+        // for (auto &mesh : model.meshes) {
+        //   auto hit = traverse_bvh2(mesh.instance, ray_data);
+        //   if (hit.primitive_index != core::bvh::invalid_index) {
+        //     _image->at(i, j) = core::vec4{
+        //         ((hit.primitive_index * 8765 + 135) % 255) / 255.f,
+        //         ((hit.primitive_index * 4 * 856 + 74334) % 255) / 255.f,
+        //         ((hit.primitive_index * 2 * 879 + 86) % 255) / 255.f, 1.f};
+        //   }
+        // }
       }
     }
   });
