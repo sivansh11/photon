@@ -38,8 +38,8 @@ public:
   float fov{90.0f}; // zoom var ?
   float camera_speed_multiplyer{1};
 
-  float far{1000.f};
-  float near{0.1f};
+  float far{10000.f};
+  float near{0.001f};
 
 private:
   core::window_t &_window;
@@ -122,7 +122,7 @@ void editor_camera_t::update(float ts, uint32_t width, uint32_t height) {
 }
 
 int main(int argc, char **argv) {
-  check(argc == 2, "photon [model path]");
+  check(argc == 3, "photon [photon assets path] [model path]");
 
   uint32_t width = 640, height = 420;
 
@@ -144,12 +144,13 @@ int main(int argc, char **argv) {
   {
     auto id = current_scene->create();
     current_scene->construct<core::raw_model_t>(id) =
-        core::load_model_from_path(argv[1]);
+        core::load_model_from_path(argv[2]);
     auto &transform = current_scene->construct<core::transform_t>(id);
     transform.scale = {0.01, 0.01, 0.01};
   }
 
-  photon::renderer_t renderer{width, height, window, context, base, dispatcher};
+  photon::renderer_t renderer{width, height,     window, context,
+                              base,  dispatcher, argv[1]};
 
   editor_camera_t editor_camera{*window};
   editor_camera.update_projection(float(width) / float(height));
@@ -224,20 +225,6 @@ int main(int argc, char **argv) {
     ImGui::DockSpace(dockspaceID, ImGui::GetContentRegionAvail(),
                      dockspaceFlags);
     if (ImGui::BeginMainMenuBar()) {
-      // if (ImGui::BeginMenu("Pipelines")) {
-      //   for (auto &panel : pipelines) {
-      //     if (ImGui::MenuItem(panel->m_name.c_str(), NULL, &panel->show)) {
-      //     }
-      //   }
-      //   ImGui::EndMenu();
-      // }
-      // if (ImGui::BeginMenu("Panels")) {
-      //   for (auto &panel : panels) {
-      //     if (ImGui::MenuItem(panel->m_name.c_str(), NULL, &panel->show)) {
-      //     }
-      //   }
-      //   ImGui::EndMenu();
-      // }
       ImGui::EndMainMenuBar();
     }
     ImGui::End();
@@ -251,9 +238,6 @@ int main(int argc, char **argv) {
     ImGuiWindowFlags viewPortFlags =
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDecoration;
     ImGui::Begin("viewport", nullptr, viewPortFlags);
-    auto vp = ImGui::GetWindowSize();
-    width = vp.x;
-    height = vp.y;
 
     if (image_view != main_image_view) {
       main_image_view = image_view;

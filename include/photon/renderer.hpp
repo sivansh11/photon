@@ -12,6 +12,7 @@
 #include "horizon/gfx/types.hpp"
 
 #include <cstdint>
+#include <filesystem>
 
 namespace photon {
 
@@ -19,13 +20,15 @@ class renderer_t {
 public:
   renderer_t(uint32_t width, uint32_t height, core::ref<core::window_t> window,
              core::ref<gfx::context_t> context, core::ref<gfx::base_t> base,
-             core::ref<core::dispatcher_t> dispatcher);
+             core::ref<core::dispatcher_t> dispatcher,
+             const std::filesystem::path &photon_assets_path);
   ~renderer_t();
 
   gfx::handle_image_view_t render(core::ref<ecs::scene_t<>> scene,
                                   const core::camera_t &camera);
 
 private:
+  const std::filesystem::path _photon_assets_path;
   uint32_t _width, _height;
 
   core::ref<core::window_t> _window;

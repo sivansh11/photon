@@ -65,14 +65,16 @@ renderer_t::renderer_t(uint32_t width, uint32_t height,
                        core::ref<core::window_t> window,
                        core::ref<gfx::context_t> context,
                        core::ref<gfx::base_t> base,
-                       core::ref<core::dispatcher_t> dispatcher)
+                       core::ref<core::dispatcher_t> dispatcher,
+                       const std::filesystem::path &photon_assets_path)
     : _width(width), _height(height), _window(window), _context(context),
-      _base(base), _dispatcher(dispatcher) {
+      _base(base), _dispatcher(dispatcher),
+      _photon_assets_path(photon_assets_path) {
   _dispatcher->subscribe<resize_event_t>([this](const core::event_t &event) {
     const resize_event_t &e = reinterpret_cast<const resize_event_t &>(event);
     _width = e.width;
     _height = e.height;
-    horizon_info("{} {}", _width, _height);
+    _context->wait_idle();
     _context->destroy_image(_image);
     _context->destroy_image(_depth);
     _context->destroy_image_view(_image_view);
@@ -137,10 +139,12 @@ renderer_t::renderer_t(uint32_t width, uint32_t height,
           .stencilTestEnable = VK_FALSE,
       });
   cp.add_shader(gfx::helper::create_slang_shader(
-      *_context, "../../assets/shaders/debug_view/diffuse/vert.slang",
+      *_context,
+      _photon_assets_path.string() + "/shaders/debug_view/diffuse/vert.slang",
       gfx::shader_type_t::e_vertex));
   cp.add_shader(gfx::helper::create_slang_shader(
-      *_context, "../../assets/shaders/debug_view/diffuse/frag.slang",
+      *_context,
+      _photon_assets_path.string() + "/shaders/debug_view/diffuse/frag.slang",
       gfx::shader_type_t::e_fragment));
   _debug_diffuse_pipeline = _context->create_graphics_pipeline(cp);
 
