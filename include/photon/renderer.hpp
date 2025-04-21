@@ -44,6 +44,7 @@ private:
   gfx::handle_image_t _depth;
   gfx::handle_image_view_t _depth_view;
 
+  gfx::handle_pipeline_layout_t _debug_diffuse_pipeline_layout;
   gfx::handle_pipeline_t _debug_diffuse_pipeline;
 
   gfx::handle_buffer_t _camera_buffer;
