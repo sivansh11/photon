@@ -123,10 +123,10 @@ renderer_t::renderer_t(uint32_t width, uint32_t height,
   gfx::config_pipeline_layout_t cpl{};
   cpl.add_descriptor_set_layout(_base->_bindless_descriptor_set_layout);
   cpl.add_push_constant(sizeof(shader::push_constant_t), VK_SHADER_STAGE_ALL);
-  gfx::handle_pipeline_layout_t pl = context->create_pipeline_layout(cpl);
+  _debug_diffuse_pipeline_layout = context->create_pipeline_layout(cpl);
 
   gfx::config_pipeline_t cp{};
-  cp.handle_pipeline_layout = pl;
+  cp.handle_pipeline_layout = _debug_diffuse_pipeline_layout;
   cp.add_color_attachment(VK_FORMAT_R8G8B8A8_SRGB,
                           gfx::default_color_blend_attachment());
   cp.set_depth_attachment(
@@ -157,89 +157,99 @@ renderer_t::renderer_t(uint32_t width, uint32_t height,
   _camera_buffer = _context->create_buffer(cb);
 }
 
-renderer_t::~renderer_t() {}
+renderer_t::~renderer_t() {
+  _context->wait_idle();
+  _context->destroy_image(_image);
+  _context->destroy_image(_depth);
+  _context->destroy_image_view(_image_view);
+  _context->destroy_image_view(_depth_view);
+  _context->destroy_pipeline(_debug_diffuse_pipeline);
+  _context->destroy_pipeline_layout(_debug_diffuse_pipeline_layout);
+  _context->destroy_buffer(_camera_buffer);
+}
 
 gfx::handle_image_view_t renderer_t::render(core::ref<ecs::scene_t<>> scene,
                                             const core::camera_t &camera) {
   // prepare
-  scene->for_all<core::raw_model_t>([&](ecs::entity_id_t id,
-                                        const core::raw_model_t &raw_model) {
-    if (scene->has<model_t>(id))
-      return;
-    // upload model data to GPU
-    model_t &model = scene->construct<model_t>(id);
-    for (auto &raw_mesh : raw_model.meshes) {
-      mesh_t mesh{};
-      mesh.vertex_count = raw_mesh.vertices.size();
-      mesh.index_count = raw_mesh.indices.size();
+  scene->for_all<core::raw_model_t>(
+      [&](ecs::entity_id_t id, const core::raw_model_t &raw_model) {
+        if (scene->has<model_t>(id))
+          return;
+        // upload model data to GPU
+        model_t &model = scene->construct<model_t>(id);
+        for (auto &raw_mesh : raw_model.meshes) {
+          mesh_t mesh{};
+          mesh.vertex_count = raw_mesh.vertices.size();
+          mesh.index_count = raw_mesh.indices.size();
 
-      gfx::config_buffer_t cb{};
-      cb.vk_buffer_usage_flags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-      cb.vma_allocation_create_flags =
-          VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+          gfx::config_buffer_t cb{};
+          cb.vk_buffer_usage_flags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+          cb.vma_allocation_create_flags =
+              VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 
-      // upload vertex and index
-      cb.vk_size = raw_mesh.vertices.size() * sizeof(raw_mesh.vertices[0]);
-      mesh.vertex_buffer = gfx::helper::create_buffer_staged(
-          *_context, _base->_command_pool, cb, raw_mesh.vertices.data(),
-          raw_mesh.vertices.size() * sizeof(raw_mesh.vertices[0]));
+          // upload vertex and index
+          cb.vk_size = raw_mesh.vertices.size() * sizeof(raw_mesh.vertices[0]);
+          mesh.vertex_buffer = gfx::helper::create_buffer_staged(
+              *_context, _base->_command_pool, cb, raw_mesh.vertices.data(),
+              raw_mesh.vertices.size() * sizeof(raw_mesh.vertices[0]));
 
-      cb.vk_size = raw_mesh.indices.size() * sizeof(raw_mesh.indices[0]);
-      mesh.index_buffer = gfx::helper::create_buffer_staged(
-          *_context, _base->_command_pool, cb, raw_mesh.indices.data(),
-          raw_mesh.indices.size() * sizeof(raw_mesh.indices[0]));
+          cb.vk_size = raw_mesh.indices.size() * sizeof(raw_mesh.indices[0]);
+          mesh.index_buffer = gfx::helper::create_buffer_staged(
+              *_context, _base->_command_pool, cb, raw_mesh.indices.data(),
+              raw_mesh.indices.size() * sizeof(raw_mesh.indices[0]));
 
-      // upload texture
-      auto itr =
-          std::find_if(raw_mesh.material_description.texture_infos.begin(),
-                       raw_mesh.material_description.texture_infos.end(),
-                       [](const core::texture_info_t &texture_info) {
-                         return texture_info.texture_type ==
-                                core::texture_type_t::e_diffuse_map;
-                       });
-      if (itr != raw_mesh.material_description.texture_infos.end()) {
-        // TODO: handle deletion, maybe set it in the material struct as it
-        // is, and add a custom deletor
-        gfx::handle_image_t diffuse_image =
-            gfx::helper::load_image_from_path_instant(
-                *_context, _base->_command_pool, itr->file_path,
-                VK_FORMAT_R8G8B8A8_SRGB);
-        gfx::handle_image_view_t diffuse_image_view =
-            _context->create_image_view({.handle_image = diffuse_image});
-        mesh.material.diffuse = _base->new_bindless_image();
-        _base->set_bindless_image(mesh.material.diffuse, diffuse_image_view,
-                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-      } else {
-        // default texture
-        // TODO: cache default texture
-        gfx::handle_image_t diffuse_image =
-            gfx::helper::load_image_from_path_instant(
-                *_context, _base->_command_pool,
-                "../../assets/textures/default.png", VK_FORMAT_R8G8B8A8_SRGB);
-        gfx::handle_image_view_t diffuse_image_view =
-            _context->create_image_view({.handle_image = diffuse_image});
-        mesh.material.diffuse = _base->new_bindless_image();
-        _base->set_bindless_image(mesh.material.diffuse, diffuse_image_view,
-                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-      }
+          // upload texture
+          auto itr =
+              std::find_if(raw_mesh.material_description.texture_infos.begin(),
+                           raw_mesh.material_description.texture_infos.end(),
+                           [](const core::texture_info_t &texture_info) {
+                             return texture_info.texture_type ==
+                                    core::texture_type_t::e_diffuse_map;
+                           });
+          if (itr != raw_mesh.material_description.texture_infos.end()) {
+            // TODO: handle deletion, maybe set it in the material struct as it
+            // is, and add a custom deletor
+            gfx::handle_image_t diffuse_image =
+                gfx::helper::load_image_from_path_instant(
+                    *_context, _base->_command_pool, itr->file_path,
+                    VK_FORMAT_R8G8B8A8_SRGB);
+            gfx::handle_image_view_t diffuse_image_view =
+                _context->create_image_view({.handle_image = diffuse_image});
+            mesh.material.diffuse = _base->new_bindless_image();
+            _base->set_bindless_image(mesh.material.diffuse, diffuse_image_view,
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+          } else {
+            // default texture
+            // TODO: cache default texture
+            gfx::handle_image_t diffuse_image =
+                gfx::helper::load_image_from_path_instant(
+                    *_context, _base->_command_pool,
+                    _photon_assets_path.string() + "/textures/default.png",
+                    VK_FORMAT_R8G8B8A8_SRGB);
+            gfx::handle_image_view_t diffuse_image_view =
+                _context->create_image_view({.handle_image = diffuse_image});
+            mesh.material.diffuse = _base->new_bindless_image();
+            _base->set_bindless_image(mesh.material.diffuse, diffuse_image_view,
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+          }
 
-      mesh.shader_mesh.vertices = gfx::to<core::vertex_t *>(
-          _context->get_buffer_device_address(mesh.vertex_buffer));
-      mesh.shader_mesh.indices = gfx::to<uint32_t *>(
-          _context->get_buffer_device_address(mesh.index_buffer));
-      cb.vma_allocation_create_flags =
-          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-      cb.vk_size = sizeof(core::mat4);
-      mesh.model = _context->create_buffer(cb);
-      mesh.inv_model = _context->create_buffer(cb);
-      mesh.shader_mesh.model = gfx::to<core::mat4 *>(
-          _context->get_buffer_device_address(mesh.model));
-      mesh.shader_mesh.inv_model = gfx::to<core::mat4 *>(
-          _context->get_buffer_device_address(mesh.inv_model));
-      mesh.shader_mesh.material = mesh.material;
-      model.meshes.push_back(mesh);
-    }
-  });
+          mesh.shader_mesh.vertices = gfx::to<core::vertex_t *>(
+              _context->get_buffer_device_address(mesh.vertex_buffer));
+          mesh.shader_mesh.indices = gfx::to<uint32_t *>(
+              _context->get_buffer_device_address(mesh.index_buffer));
+          cb.vma_allocation_create_flags =
+              VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+          cb.vk_size = sizeof(core::mat4);
+          mesh.model = _context->create_buffer(cb);
+          mesh.inv_model = _context->create_buffer(cb);
+          mesh.shader_mesh.model = gfx::to<core::mat4 *>(
+              _context->get_buffer_device_address(mesh.model));
+          mesh.shader_mesh.inv_model = gfx::to<core::mat4 *>(
+              _context->get_buffer_device_address(mesh.inv_model));
+          mesh.shader_mesh.material = mesh.material;
+          model.meshes.push_back(mesh);
+        }
+      });
 
   // draw
   auto cbuf = _base->current_commandbuffer();
