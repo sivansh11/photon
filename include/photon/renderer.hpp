@@ -27,6 +27,8 @@ public:
   gfx::handle_image_view_t render(core::ref<ecs::scene_t<>> scene,
                                   const core::camera_t &camera);
 
+  void gui();
+
 private:
   const std::filesystem::path _photon_assets_path;
   uint32_t _width, _height;

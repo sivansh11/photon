@@ -12,6 +12,7 @@
 #include "horizon/gfx/context.hpp"
 #include "horizon/gfx/helper.hpp"
 #include "horizon/gfx/types.hpp"
+#include "imgui.h"
 #include <cstring>
 #include <vector>
 #include <vulkan/vulkan_core.h>
@@ -331,6 +332,11 @@ gfx::handle_image_view_t renderer_t::render(core::ref<ecs::scene_t<>> scene,
       VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 
   return _image_view;
+}
+
+void renderer_t::gui() {
+  ImGui::Begin("Photon Settings");
+  ImGui::End();
 }
 
 } // namespace photon
