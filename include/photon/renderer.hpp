@@ -27,6 +27,9 @@ public:
   gfx::handle_image_view_t render(core::ref<ecs::scene_t<>> scene,
                                   const core::camera_t &camera);
 
+  uint32_t width() { return _width; }
+  uint32_t height() { return _width; }
+
   void gui();
 
 private:
