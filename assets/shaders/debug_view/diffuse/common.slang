@@ -17,12 +17,12 @@ struct camera_t {
 };
 
 struct push_constant_t {
+  vertex_t *vertices;
   uint32_t *indices;
   float4x4 *model;
   float4x4 *inv_model;
   uint32_t diffuse_bindless;
   camera_t *camera;
-  vertex_t *vertices;
 };
 
 struct per_fragment_t {

@@ -36,12 +36,12 @@ struct mesh_t {
 };
 
 struct push_constant_t {
+  core::vertex_t *vertices;
   uint32_t *indices;
   core::mat4 *model;
   core::mat4 *inv_model;
   uint32_t diffuse_bindless;
   camera_t *camera;
-  core::vertex_t *vertices;
 };
 
 struct model_t {
