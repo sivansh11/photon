@@ -132,14 +132,14 @@ renderer_t::~renderer_t() {
 gfx::handle_image_view_t renderer_t::render(core::ref<ecs::scene_t<>> scene,
                                             const core::camera_t &camera) {
   // prepare
-  scene->for_all<core::raw_model_t>(
-      [&](ecs::entity_id_t id, const core::raw_model_t &raw_model) {
-        if (scene->has<model_t>(id))
-          return;
-        // upload model data to GPU
-        scene->construct<model_t>(id) =
-            raw_model_to_model(_base, _photon_assets_path, raw_model);
-      });
+  scene->for_all<core::raw_model_t>([&](ecs::entity_id_t id,
+                                        const core::raw_model_t &raw_model) {
+    if (scene->has<model_t>(id))
+      return;
+    // upload model data to GPU
+    scene->construct<model_t>(id) =
+        std::move(raw_model_to_model(_base, _photon_assets_path, raw_model));
+  });
 
   // draw
   auto cbuf = _base->current_commandbuffer();

@@ -18,7 +18,8 @@ model_t raw_model_to_model(core::ref<gfx::base_t> base,
   model_t model{};
 
   for (auto &raw_mesh : raw_model.meshes) {
-    mesh_t mesh{};
+    mesh_t &mesh = model.meshes.emplace_back();
+    mesh.context = base->_context;
 
     gfx::config_buffer_t cb{};
     cb.vk_buffer_usage_flags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -28,13 +29,13 @@ model_t raw_model_to_model(core::ref<gfx::base_t> base,
     mesh.vertex_count = raw_mesh.vertices.size();
     cb.vk_size = raw_mesh.vertices.size() * sizeof(raw_mesh.vertices[0]);
     mesh.vertex_buffer = gfx::helper::create_buffer_staged(
-        base->_info.context, base->_command_pool, cb, raw_mesh.vertices.data(),
+        *base->_context, base->_command_pool, cb, raw_mesh.vertices.data(),
         cb.vk_size);
 
     mesh.index_count = raw_mesh.indices.size();
     cb.vk_size = raw_mesh.indices.size() * sizeof(raw_mesh.indices[0]);
     mesh.index_buffer = gfx::helper::create_buffer_staged(
-        base->_info.context, base->_command_pool, cb, raw_mesh.indices.data(),
+        *base->_context, base->_command_pool, cb, raw_mesh.indices.data(),
         cb.vk_size);
 
     // upload texture
@@ -48,9 +49,9 @@ model_t raw_model_to_model(core::ref<gfx::base_t> base,
     if (itr != raw_mesh.material_description.texture_infos.end()) {
       // TODO: handle image deletion
       mesh.material.diffuse = gfx::helper::load_image_from_path_instant(
-          base->_info.context, base->_command_pool, itr->file_path,
+          *base->_context, base->_command_pool, itr->file_path,
           VK_FORMAT_R8G8B8A8_SRGB);
-      mesh.material.diffuse_view = base->_info.context.create_image_view(
+      mesh.material.diffuse_view = base->_context->create_image_view(
           {.handle_image = mesh.material.diffuse});
       mesh.material.diffuse_bindless = base->new_bindless_image();
       base->set_bindless_image(mesh.material.diffuse_bindless,
@@ -59,10 +60,10 @@ model_t raw_model_to_model(core::ref<gfx::base_t> base,
     } else {
       // TODO: cache default
       mesh.material.diffuse = gfx::helper::load_image_from_path_instant(
-          base->_info.context, base->_command_pool,
+          *base->_context, base->_command_pool,
           photon_assets_path.string() + "/textures/default.png",
           VK_FORMAT_R8G8B8A8_SRGB);
-      mesh.material.diffuse_view = base->_info.context.create_image_view(
+      mesh.material.diffuse_view = base->_context->create_image_view(
           {.handle_image = mesh.material.diffuse});
       mesh.material.diffuse_bindless = base->new_bindless_image();
       base->set_bindless_image(mesh.material.diffuse_bindless,
@@ -99,25 +100,21 @@ model_t raw_model_to_model(core::ref<gfx::base_t> base,
 
     cb.vk_size = triangles.size() * sizeof(triangles[0]);
     mesh.bvh_triangles_buffer = gfx::helper::create_buffer_staged(
-        base->_info.context, base->_command_pool, cb, triangles.data(),
-        cb.vk_size);
+        *base->_context, base->_command_pool, cb, triangles.data(), cb.vk_size);
     cb.vk_size = bvh.nodes.size() * sizeof(bvh.nodes[0]);
     mesh.nodes_buffer = gfx::helper::create_buffer_staged(
-        base->_info.context, base->_command_pool, cb, bvh.nodes.data(),
-        cb.vk_size);
+        *base->_context, base->_command_pool, cb, bvh.nodes.data(), cb.vk_size);
     cb.vk_size =
         bvh.primitive_indices.size() * sizeof(bvh.primitive_indices[0]);
     mesh.primitive_index_buffer = gfx::helper::create_buffer_staged(
-        base->_info.context, base->_command_pool, cb,
-        bvh.primitive_indices.data(), cb.vk_size);
+        *base->_context, base->_command_pool, cb, bvh.primitive_indices.data(),
+        cb.vk_size);
 
     cb.vma_allocation_create_flags =
         VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
     cb.vk_size = sizeof(core::mat4);
-    mesh.model_buffer = base->_info.context.create_buffer(cb);
-    mesh.inv_model_buffer = base->_info.context.create_buffer(cb);
-
-    model.meshes.push_back(mesh);
+    mesh.model_buffer = base->_context->create_buffer(cb);
+    mesh.inv_model_buffer = base->_context->create_buffer(cb);
   }
 
   return model;

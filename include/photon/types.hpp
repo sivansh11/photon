@@ -2,12 +2,14 @@
 #define PHOTON_TYPES_HPP
 
 #include "horizon/core/aabb.hpp"
+#include "horizon/core/core.hpp"
 #include "horizon/core/math.hpp"
 #include "horizon/core/model.hpp"
 
 #include "horizon/gfx/context.hpp"
 #include "horizon/gfx/base.hpp"
 #include "horizon/gfx/types.hpp"
+#include "imgui.h"
 
 #include <vector>
 
@@ -63,6 +65,75 @@ struct mesh_t {
   material_t material;
   uint32_t vertex_count;
   uint32_t index_count;
+
+  core::ref<gfx::context_t> context;
+
+  mesh_t() { context = nullptr; }
+
+  ~mesh_t() {
+    if (context != nullptr) {
+      context->destroy_buffer(vertex_buffer);
+      context->destroy_buffer(index_buffer);
+      context->destroy_buffer(nodes_buffer);
+      context->destroy_buffer(primitive_index_buffer);
+      context->destroy_buffer(bvh_triangles_buffer);
+      context->destroy_buffer(model_buffer);
+      context->destroy_buffer(inv_model_buffer);
+      context->destroy_image_view(material.diffuse_view);
+      context->destroy_image(material.diffuse);
+    }
+  }
+
+  mesh_t(const mesh_t &) = delete;
+  mesh_t &operator=(const mesh_t &) = delete;
+
+  mesh_t(mesh_t &&other) {
+    vertex_buffer = other.vertex_buffer;
+    index_buffer = other.index_buffer;
+    nodes_buffer = other.nodes_buffer;
+    primitive_index_buffer = other.primitive_index_buffer;
+    bvh_triangles_buffer = other.bvh_triangles_buffer;
+    model_buffer = other.model_buffer;
+    inv_model_buffer = other.inv_model_buffer;
+    material = other.material;
+    vertex_count = other.vertex_count;
+    index_count = other.index_count;
+    context = other.context;
+
+    other.vertex_buffer = core::null_handle;
+    other.index_buffer = core::null_handle;
+    other.nodes_buffer = core::null_handle;
+    other.primitive_index_buffer = core::null_handle;
+    other.bvh_triangles_buffer = core::null_handle;
+    other.model_buffer = core::null_handle;
+    other.inv_model_buffer = core::null_handle;
+    other.context = 0;
+  }
+
+  mesh_t &operator=(mesh_t &&other) {
+    vertex_buffer = other.vertex_buffer;
+    index_buffer = other.index_buffer;
+    nodes_buffer = other.nodes_buffer;
+    primitive_index_buffer = other.primitive_index_buffer;
+    bvh_triangles_buffer = other.bvh_triangles_buffer;
+    model_buffer = other.model_buffer;
+    inv_model_buffer = other.inv_model_buffer;
+    material = other.material;
+    vertex_count = other.vertex_count;
+    index_count = other.index_count;
+    context = other.context;
+
+    other.vertex_buffer = core::null_handle;
+    other.index_buffer = core::null_handle;
+    other.nodes_buffer = core::null_handle;
+    other.primitive_index_buffer = core::null_handle;
+    other.bvh_triangles_buffer = core::null_handle;
+    other.model_buffer = core::null_handle;
+    other.inv_model_buffer = core::null_handle;
+    other.context = 0;
+
+    return *this;
+  }
 };
 
 struct push_constant_raster_t {

@@ -128,8 +128,7 @@ int main(int argc, char **argv) {
 
   auto window = core::make_ref<core::window_t>("photon", width, height);
   auto context = core::make_ref<gfx::context_t>(true);
-  auto base =
-      core::make_ref<gfx::base_t>(gfx::base_config_t{*window, *context});
+  auto base = core::make_ref<gfx::base_t>(window, context);
   gfx::helper::imgui_init(*window, *context, base->_swapchain,
                           VK_FORMAT_B8G8R8A8_SRGB);
 
