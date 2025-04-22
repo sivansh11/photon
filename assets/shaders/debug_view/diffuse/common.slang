@@ -16,7 +16,7 @@ struct camera_t {
   float4x4 inv_projection;
 };
 
-struct push_constant_t {
+struct push_constant_raster_t {
   vertex_t *vertices;
   uint32_t *indices;
   float4x4 *model;

@@ -263,6 +263,8 @@ int main(int argc, char **argv) {
     ImGui::End();
     ImGui::PopStyleVar(2);
 
+    renderer.gui();
+
     gfx::helper::imgui_endframe(*context, base->current_commandbuffer());
 
     base->end_swapchain_renderpass();

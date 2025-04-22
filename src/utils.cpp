@@ -1,5 +1,7 @@
 #include "photon/utils.hpp"
 
+#include "horizon/core/aabb.hpp"
+#include "horizon/core/bvh.hpp"
 #include "horizon/core/model.hpp"
 #include "horizon/gfx/context.hpp"
 #include "horizon/gfx/helper.hpp"
@@ -67,6 +69,47 @@ model_t raw_model_to_model(core::ref<gfx::base_t> base,
                                mesh.material.diffuse_view,
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
+
+    std::vector<core::aabb_t> aabbs{};
+    std::vector<core::vec3> centers{};
+    std::vector<triangle_t> triangles{};
+    for (uint32_t i = 0; i < raw_mesh.indices.size(); i += 3) {
+      triangle_t triangle{
+          .v0 = raw_mesh.vertices[raw_mesh.indices[i + 0]].position,
+          .v1 = raw_mesh.vertices[raw_mesh.indices[i + 1]].position,
+          .v2 = raw_mesh.vertices[raw_mesh.indices[i + 2]].position,
+      };
+      triangles.push_back(triangle);
+      aabbs.push_back(triangle.aabb());
+      centers.push_back(triangle.center());
+    }
+
+    core::bvh::options_t options{
+        .o_min_primitive_count = 1,
+        .o_max_primitive_count = 8,
+        .o_object_split_search_type =
+            core::bvh::object_split_search_type_t::e_binned_sah,
+        .o_primitive_intersection_cost = 1.1f,
+        .o_node_intersection_cost = 1.f,
+        .o_samples = 8,
+    };
+
+    core::bvh::bvh_t bvh = core::bvh::build_bvh2(aabbs.data(), centers.data(),
+                                                 triangles.size(), options);
+
+    cb.vk_size = triangles.size() * sizeof(triangles[0]);
+    mesh.bvh_triangles_buffer = gfx::helper::create_buffer_staged(
+        base->_info.context, base->_command_pool, cb, triangles.data(),
+        cb.vk_size);
+    cb.vk_size = bvh.nodes.size() * sizeof(bvh.nodes[0]);
+    mesh.nodes_buffer = gfx::helper::create_buffer_staged(
+        base->_info.context, base->_command_pool, cb, bvh.nodes.data(),
+        cb.vk_size);
+    cb.vk_size =
+        bvh.primitive_indices.size() * sizeof(bvh.primitive_indices[0]);
+    mesh.primitive_index_buffer = gfx::helper::create_buffer_staged(
+        base->_info.context, base->_command_pool, cb,
+        bvh.primitive_indices.data(), cb.vk_size);
 
     cb.vma_allocation_create_flags =
         VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;

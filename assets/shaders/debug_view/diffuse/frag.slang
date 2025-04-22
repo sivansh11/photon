@@ -6,7 +6,7 @@ uniform Texture2D textures[1000];
 uniform SamplerState samplers[1000];
 
 [vk::push_constant]
-push_constant_t pc;
+push_constant_raster_t pc;
 
 struct fragment_t {
   float4 o_color : COLOR0;

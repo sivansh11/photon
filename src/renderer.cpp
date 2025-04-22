@@ -1,4 +1,5 @@
 #include "photon/renderer.hpp"
+#include "photon/types.hpp"
 #include "photon/utils.hpp"
 #include "glm/ext/quaternion_common.hpp"
 #include "glm/fwd.hpp"
@@ -82,7 +83,7 @@ renderer_t::renderer_t(uint32_t width, uint32_t height,
 
   gfx::config_pipeline_layout_t cpl{};
   cpl.add_descriptor_set_layout(_base->_bindless_descriptor_set_layout);
-  cpl.add_push_constant(sizeof(push_constant_t), VK_SHADER_STAGE_ALL);
+  cpl.add_push_constant(sizeof(push_constant_raster_t), VK_SHADER_STAGE_ALL);
   _debug_diffuse_pipeline_layout = context->create_pipeline_layout(cpl);
 
   gfx::config_pipeline_t cp{};
@@ -193,7 +194,7 @@ gfx::handle_image_view_t renderer_t::render(core::ref<ecs::scene_t<>> scene,
   std::memcpy(_context->map_buffer(_camera_buffer), &shader_camera,
               sizeof(camera_t));
 
-  push_constant_t pc{};
+  push_constant_raster_t pc{};
   pc.camera =
       gfx::to<camera_t *>(_context->get_buffer_device_address(_camera_buffer));
 
@@ -218,7 +219,7 @@ gfx::handle_image_view_t renderer_t::render(core::ref<ecs::scene_t<>> scene,
                       sizeof(core::mat4));
           _context->cmd_push_constants(cbuf, _debug_diffuse_pipeline,
                                        VK_SHADER_STAGE_ALL, 0,
-                                       sizeof(push_constant_t), &pc);
+                                       sizeof(push_constant_raster_t), &pc);
           _context->cmd_draw(cbuf, mesh.index_count, 1, 0, 0);
         }
       });

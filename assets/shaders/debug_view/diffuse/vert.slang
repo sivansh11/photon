@@ -1,7 +1,7 @@
 #include "common.slang"
 
 [vk::push_constant]
-push_constant_t pc;
+push_constant_raster_t pc;
 
 [shader("vertex")]
 vertex_shader_output_t vertex_main(uint32_t index: SV_VertexID) {
