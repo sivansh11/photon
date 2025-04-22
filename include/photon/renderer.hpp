@@ -28,7 +28,7 @@ public:
                                   const core::camera_t &camera);
 
   uint32_t width() { return _width; }
-  uint32_t height() { return _width; }
+  uint32_t height() { return _height; }
 
   void gui();
 
