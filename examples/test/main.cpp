@@ -173,6 +173,8 @@ int main(int argc, char **argv) {
   auto last_time = std::chrono::system_clock::now();
   core::frame_timer_t frame_timer{60.f};
 
+  bool resize = false;
+
   while (!window->should_close()) {
     core::window_t::poll_events();
     if (glfwGetKey(*window, GLFW_KEY_ESCAPE))
@@ -252,8 +254,6 @@ int main(int argc, char **argv) {
     if (size.x != width || size.y != height) {
       width = size.x;
       height = size.y;
-      dispatcher->post<photon::resize_event_t>(
-          photon::resize_event_t{.width = width, .height = height});
     }
     ImGui::Image(reinterpret_cast<ImTextureID>(reinterpret_cast<void *>(
                      context->get_descriptor_set(imgui_image_descriptor_set)
@@ -268,6 +268,13 @@ int main(int argc, char **argv) {
     base->end_swapchain_renderpass();
 
     base->end();
+
+    if (resize) {
+      resize = false;
+      context->wait_idle();
+      dispatcher->post<photon::resize_event_t>(
+          photon::resize_event_t{.width = width, .height = height});
+    }
   }
 
   context->wait_idle();

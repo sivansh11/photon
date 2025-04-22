@@ -1,4 +1,5 @@
 #include "photon/renderer.hpp"
+#include "photon/utils.hpp"
 #include "glm/ext/quaternion_common.hpp"
 #include "glm/fwd.hpp"
 #include "horizon/core/components.hpp"
@@ -18,49 +19,6 @@
 #include <vulkan/vulkan_core.h>
 
 namespace photon {
-
-struct material_t {
-  gfx::handle_bindless_image_t diffuse;
-};
-
-namespace shader {
-
-struct camera_t {
-  core::mat4 view;
-  core::mat4 inv_view;
-  core::mat4 projection;
-  core::mat4 inv_projection;
-};
-
-struct mesh_t {
-  core::vertex_t *vertices; // gpu pointer
-  uint32_t *indices;        // gpu pointer
-  core::mat4 *model;        // gpu pointer
-  core::mat4 *inv_model;    // gpu pointer
-  material_t material;
-};
-
-struct push_constant_t {
-  mesh_t mesh;
-  camera_t *camera; // gpu pointer
-};
-
-} // namespace shader
-
-struct mesh_t {
-  gfx::handle_buffer_t vertex_buffer;
-  gfx::handle_buffer_t index_buffer;
-  uint32_t vertex_count;
-  uint32_t index_count;
-  material_t material;
-  gfx::handle_buffer_t model;
-  gfx::handle_buffer_t inv_model;
-  shader::mesh_t shader_mesh;
-};
-
-struct model_t {
-  std::vector<mesh_t> meshes;
-};
 
 renderer_t::renderer_t(uint32_t width, uint32_t height,
                        core::ref<core::window_t> window,
@@ -89,6 +47,7 @@ renderer_t::renderer_t(uint32_t width, uint32_t height,
     ci.vk_usage =
         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     ci.vma_allocation_create_flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+    ci.vk_mips = 1;
     ci.debug_name = "IMAGE";
     _image = _context->create_image(ci);
     _image_view = _context->create_image_view({.handle_image = _image});
@@ -109,6 +68,7 @@ renderer_t::renderer_t(uint32_t width, uint32_t height,
   ci.vk_usage =
       VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
   ci.vma_allocation_create_flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+  ci.vk_mips = 1;
   ci.debug_name = "IMAGE";
   _image = _context->create_image(ci);
   _image_view = _context->create_image_view({.handle_image = _image});
@@ -122,7 +82,7 @@ renderer_t::renderer_t(uint32_t width, uint32_t height,
 
   gfx::config_pipeline_layout_t cpl{};
   cpl.add_descriptor_set_layout(_base->_bindless_descriptor_set_layout);
-  cpl.add_push_constant(sizeof(shader::push_constant_t), VK_SHADER_STAGE_ALL);
+  cpl.add_push_constant(sizeof(push_constant_t), VK_SHADER_STAGE_ALL);
   _debug_diffuse_pipeline_layout = context->create_pipeline_layout(cpl);
 
   gfx::config_pipeline_t cp{};
@@ -153,7 +113,7 @@ renderer_t::renderer_t(uint32_t width, uint32_t height,
   cb.vk_buffer_usage_flags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   cb.vma_allocation_create_flags =
       VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-  cb.vk_size = sizeof(shader::camera_t);
+  cb.vk_size = sizeof(camera_t);
   _camera_buffer = _context->create_buffer(cb);
 }
 
@@ -176,79 +136,8 @@ gfx::handle_image_view_t renderer_t::render(core::ref<ecs::scene_t<>> scene,
         if (scene->has<model_t>(id))
           return;
         // upload model data to GPU
-        model_t &model = scene->construct<model_t>(id);
-        for (auto &raw_mesh : raw_model.meshes) {
-          mesh_t mesh{};
-          mesh.vertex_count = raw_mesh.vertices.size();
-          mesh.index_count = raw_mesh.indices.size();
-
-          gfx::config_buffer_t cb{};
-          cb.vk_buffer_usage_flags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-          cb.vma_allocation_create_flags =
-              VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
-
-          // upload vertex and index
-          cb.vk_size = raw_mesh.vertices.size() * sizeof(raw_mesh.vertices[0]);
-          mesh.vertex_buffer = gfx::helper::create_buffer_staged(
-              *_context, _base->_command_pool, cb, raw_mesh.vertices.data(),
-              raw_mesh.vertices.size() * sizeof(raw_mesh.vertices[0]));
-
-          cb.vk_size = raw_mesh.indices.size() * sizeof(raw_mesh.indices[0]);
-          mesh.index_buffer = gfx::helper::create_buffer_staged(
-              *_context, _base->_command_pool, cb, raw_mesh.indices.data(),
-              raw_mesh.indices.size() * sizeof(raw_mesh.indices[0]));
-
-          // upload texture
-          auto itr =
-              std::find_if(raw_mesh.material_description.texture_infos.begin(),
-                           raw_mesh.material_description.texture_infos.end(),
-                           [](const core::texture_info_t &texture_info) {
-                             return texture_info.texture_type ==
-                                    core::texture_type_t::e_diffuse_map;
-                           });
-          if (itr != raw_mesh.material_description.texture_infos.end()) {
-            // TODO: handle deletion, maybe set it in the material struct as it
-            // is, and add a custom deletor
-            gfx::handle_image_t diffuse_image =
-                gfx::helper::load_image_from_path_instant(
-                    *_context, _base->_command_pool, itr->file_path,
-                    VK_FORMAT_R8G8B8A8_SRGB);
-            gfx::handle_image_view_t diffuse_image_view =
-                _context->create_image_view({.handle_image = diffuse_image});
-            mesh.material.diffuse = _base->new_bindless_image();
-            _base->set_bindless_image(mesh.material.diffuse, diffuse_image_view,
-                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-          } else {
-            // default texture
-            // TODO: cache default texture
-            gfx::handle_image_t diffuse_image =
-                gfx::helper::load_image_from_path_instant(
-                    *_context, _base->_command_pool,
-                    _photon_assets_path.string() + "/textures/default.png",
-                    VK_FORMAT_R8G8B8A8_SRGB);
-            gfx::handle_image_view_t diffuse_image_view =
-                _context->create_image_view({.handle_image = diffuse_image});
-            mesh.material.diffuse = _base->new_bindless_image();
-            _base->set_bindless_image(mesh.material.diffuse, diffuse_image_view,
-                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-          }
-
-          mesh.shader_mesh.vertices = gfx::to<core::vertex_t *>(
-              _context->get_buffer_device_address(mesh.vertex_buffer));
-          mesh.shader_mesh.indices = gfx::to<uint32_t *>(
-              _context->get_buffer_device_address(mesh.index_buffer));
-          cb.vma_allocation_create_flags =
-              VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-          cb.vk_size = sizeof(core::mat4);
-          mesh.model = _context->create_buffer(cb);
-          mesh.inv_model = _context->create_buffer(cb);
-          mesh.shader_mesh.model = gfx::to<core::mat4 *>(
-              _context->get_buffer_device_address(mesh.model));
-          mesh.shader_mesh.inv_model = gfx::to<core::mat4 *>(
-              _context->get_buffer_device_address(mesh.inv_model));
-          mesh.shader_mesh.material = mesh.material;
-          model.meshes.push_back(mesh);
-        }
+        scene->construct<model_t>(id) =
+            raw_model_to_model(_base, _photon_assets_path, raw_model);
       });
 
   // draw
@@ -296,32 +185,40 @@ gfx::handle_image_view_t renderer_t::render(core::ref<ecs::scene_t<>> scene,
   _context->cmd_set_viewport_and_scissor(cbuf, viewport, scissor);
   _context->cmd_bind_descriptor_sets(cbuf, _debug_diffuse_pipeline, 0,
                                      {_base->_bindless_descriptor_set});
-  shader::camera_t shader_camera{};
+  camera_t shader_camera{};
   shader_camera.view = camera.view;
   shader_camera.projection = camera.projection;
   shader_camera.inv_view = core::inverse(shader_camera.view);
   shader_camera.inv_projection = core::inverse(shader_camera.projection);
   std::memcpy(_context->map_buffer(_camera_buffer), &shader_camera,
-              sizeof(shader::camera_t));
+              sizeof(camera_t));
 
-  shader::push_constant_t pc{};
-  pc.camera = gfx::to<shader::camera_t *>(
-      _context->get_buffer_device_address(_camera_buffer));
+  push_constant_t pc{};
+  pc.camera =
+      gfx::to<camera_t *>(_context->get_buffer_device_address(_camera_buffer));
 
   scene->for_all<model_t, core::transform_t>(
       [&](auto, const model_t &model, const core::transform_t &transform) {
         for (auto &mesh : model.meshes) {
-          pc.mesh = mesh.shader_mesh;
+          pc.vertices = gfx::to<core::vertex_t *>(
+              _context->get_buffer_device_address(mesh.vertex_buffer));
+          pc.indices = gfx::to<uint32_t *>(
+              _context->get_buffer_device_address(mesh.index_buffer));
+          pc.model = gfx::to<core::mat4 *>(
+              _context->get_buffer_device_address(mesh.model_buffer));
+          pc.inv_model = gfx::to<core::mat4 *>(
+              _context->get_buffer_device_address(mesh.inv_model_buffer));
+          pc.diffuse_bindless = mesh.material.diffuse_bindless.val;
           core::mat4 model = transform.mat4();
           core::mat4 inv_model = core::inverse(model);
           // TODO: add this to context
-          std::memcpy(_context->map_buffer(mesh.model), &model,
+          std::memcpy(_context->map_buffer(mesh.model_buffer), &model,
                       sizeof(core::mat4));
-          std::memcpy(_context->map_buffer(mesh.inv_model), &inv_model,
+          std::memcpy(_context->map_buffer(mesh.inv_model_buffer), &inv_model,
                       sizeof(core::mat4));
           _context->cmd_push_constants(cbuf, _debug_diffuse_pipeline,
                                        VK_SHADER_STAGE_ALL, 0,
-                                       sizeof(shader::push_constant_t), &pc);
+                                       sizeof(push_constant_t), &pc);
           _context->cmd_draw(cbuf, mesh.index_count, 1, 0, 0);
         }
       });

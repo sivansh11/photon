@@ -16,21 +16,13 @@ struct camera_t {
   float4x4 inv_projection;
 };
 
-struct material_t {
-  uint32_t diffuse; // bindless index
-};
-
-struct mesh_t {
-  vertex_t *vertices;
+struct push_constant_t {
   uint32_t *indices;
   float4x4 *model;
   float4x4 *inv_model;
-  material_t material;
-};
-
-struct push_constant_t {
-  mesh_t mesh;
+  uint32_t diffuse_bindless;
   camera_t *camera;
+  vertex_t *vertices;
 };
 
 struct per_fragment_t {
