@@ -15,9 +15,12 @@ struct fragment_t {
 [shader("fragment")]
 fragment_t fragment_main(per_fragment_t per_fragment) : SV_Target {
   fragment_t fragment;
-
-  fragment.o_color =
+  float4 color =
       textures[pc.diffuse_bindless].Sample(samplers[0], per_fragment.uv);
+  if (color.w <= 0.01)
+    discard;
+  fragment.o_color = color;
+
   // fragment.o_color = float4(per_fragment.uv, 0, 1);
 
   return fragment;

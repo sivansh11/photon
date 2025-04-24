@@ -8,6 +8,7 @@
 #include "horizon/gfx/types.hpp"
 #include "photon/types.hpp"
 #include <algorithm>
+#include <cassert>
 #include <vulkan/vulkan_core.h>
 
 namespace photon {

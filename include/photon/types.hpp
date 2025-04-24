@@ -5,6 +5,7 @@
 #include "horizon/core/core.hpp"
 #include "horizon/core/math.hpp"
 #include "horizon/core/model.hpp"
+#include "horizon/core/bvh.hpp"
 
 #include "horizon/gfx/context.hpp"
 #include "horizon/gfx/base.hpp"
@@ -143,6 +144,66 @@ struct push_constant_raster_t {
   core::mat4 *inv_model;
   uint32_t diffuse_bindless;
   camera_t *camera;
+};
+
+struct ray_data_t {
+  core::vec3 origin, direction;
+  core::vec3 inv_direction;
+  float tmin, tmax;
+  uint32_t pixel_index;
+};
+
+// changes between frames and changes between bounces
+struct current_raytracing_param_t {
+  uint32_t num_rays;
+};
+
+struct bvh_t {
+  core::bvh::node_t *nodes;
+  uint32_t *primitive_indices;
+};
+
+struct bvh_instance_t {
+  core::vertex_t *vertices;
+  uint32_t *indices;
+
+  // bvh
+  core::bvh::node_t *nodes;
+  /* bvh indices buffer
+   * To get the bvh triangle, directly use index
+   * To get the vertices, the indices are as follows
+   * indices in normal index buffer are as follows
+   *    primitive_index * 3 + 0
+   *    primitive_index * 3 + 1
+   *    primitive_index * 3 + 2
+   * */
+  uint32_t *primitive_indices;
+  triangle_t *bvh_triangles;
+
+  core::mat4 *model;
+  core::mat4 *inv_model;
+
+  gfx::handle_bindless_image_t diffuse_bindless;
+};
+
+struct hit_t {
+  bool did_intersect() { return primitive_index != core::bvh::invalid_index; }
+  uint32_t blas_index = core::bvh::invalid_index;
+  uint32_t primitive_index = core::bvh::invalid_index;
+  float t = core::infinity;
+  float u = 0, v = 0, w = 0;
+};
+
+struct push_constant_raytracing_t {
+  uint32_t width;
+  uint32_t height;
+  ray_data_t *ray_data;              // ray_data_t[width * height]
+  camera_t *camera;                  // camera_t
+  current_raytracing_param_t *param; // current_raytracing_param_t
+  bvh_t *tlas;                       // bvh_t
+  uint32_t num_blas_instances;       //
+  bvh_instance_t *instances;         //
+  hit_t *hits;                       // hit_t[width * height]
 };
 
 struct model_t {

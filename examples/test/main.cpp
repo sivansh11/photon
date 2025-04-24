@@ -124,7 +124,7 @@ void editor_camera_t::update(float ts, uint32_t width, uint32_t height) {
 int main(int argc, char **argv) {
   check(argc == 3, "photon [photon assets path] [model path]");
 
-  uint32_t width = 640, height = 420;
+  uint32_t width = 1200, height = 800;
 
   auto window = core::make_ref<core::window_t>("photon", width, height);
   auto context = core::make_ref<gfx::context_t>(true);
